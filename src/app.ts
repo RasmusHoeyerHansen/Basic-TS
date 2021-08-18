@@ -1,4 +1,50 @@
-//Decorators and such
+class ProjectState {
+
+    private listeners : any[] = [];
+
+    private projects : any[] = [];
+    private static instance : ProjectState;
+
+    private constructor() {
+
+    }
+
+    public addListener(listenerFunction : Function) {
+        this.listeners.push(listenerFunction)
+
+    }
+
+    static getSingleton() {
+        if (this.instance){
+            return this.instance;
+        } else {
+            this.instance = new ProjectState()
+            return this.instance;
+        }
+    }
+
+    addProject(title: string, descr : string, nrPeople:  number){
+        const newProject = {
+            id : Math.random().toString(),
+            title:title,
+            description:descr,
+            people: nrPeople
+        };
+        this.projects.push(newProject);
+
+        for (const listener of this.listeners){
+            listener(this.projects.slice());
+        }
+
+        this.projects.push(newProject);
+    }
+}
+
+const projectState = ProjectState.getSingleton();
+
+
+
+
 interface Validatable {
     minLength?: number;
     value: string |number;
@@ -45,24 +91,83 @@ function AautoBind(target: any,
     };
     return adjustedDescriptor;
 }
+abstract class HTMLProjectElement {
+    protected htmlHostElement: HTMLDivElement;
+
+    protected constructor() {
+        this.htmlHostElement = document.getElementById("app") as HTMLDivElement;
+    }
 
 
-class ProjectInput {
-    htmlTemplate: HTMLTemplateElement;
-    htmlHostElement: HTMLDivElement;
-    private formElement: Element;
+    protected attachToContent(element: Element, position: 'beforeend' | 'afterbegin') {
+        this.htmlHostElement.insertAdjacentElement(position, element);
+    }
+}
+
+
+ // Project list
+class ProjectList extends HTMLProjectElement{
+    private htmlTemplate: HTMLTemplateElement;
+    private sectionElement: HTMLElement;
+    private assignedProject : any[];
+
+    constructor(public projectType: 'active' | 'inactive' | 'finished') {
+        super()
+        this.htmlTemplate = document.getElementById("project-list") as HTMLTemplateElement;
+        this.assignedProject = [];
+
+        //Get the fields and button of the form as deep copy
+        const htmlNode = document.importNode(this.htmlTemplate.content, true);
+        //Get the first form element an attach it to host element
+        this.sectionElement = htmlNode.firstElementChild as HTMLElement;
+        this.sectionElement.id = `${this.projectType}-projects`;
+
+        projectState.addListener( (projects : any[] ) => {
+            this.assignedProject = projects;
+            this.renderProjects();
+        });
+
+        this.attachToContent(this.sectionElement, "beforeend")
+        this.renderContent();
+
+    }
+
+
+    private renderContent(){
+        const listId =`${this.projectType}-project-list`;
+        this.sectionElement.querySelector("ul")!.id = listId;
+        this.sectionElement.querySelector("h2")!.textContent
+            = this.projectType.toUpperCase() + 'PROJECT';
+    }
+
+    private renderProjects() {
+        const listEl = document.getElementById(`${this.projectType}-project-list`)! as HTMLUListElement;
+        for (const projectItem of this.assignedProject){
+            const listItem = document.createElement("li");
+            listItem.textContent = projectItem.title;
+            listEl.appendChild(listItem);
+        }
+    }
+}
+
+class ProjectInputForm extends HTMLProjectElement{
+
+    private htmlTemplate: HTMLTemplateElement;
+    private formElement: HTMLFormElement;
     private titleInput: HTMLInputElement;
     private peopleInput: HTMLInputElement;
     private descriptionInput: HTMLInputElement;
 
     constructor() {
+        super();
+        this.htmlTemplate = document.getElementById("project-input") as HTMLTemplateElement;
         this.htmlTemplate = document.getElementById("project-input") as HTMLTemplateElement;
         this.htmlHostElement = document.getElementById("app") as HTMLDivElement;
 
         //Get the fields and button of the form as deep copy
         const htmlNode = document.importNode(this.htmlTemplate.content, true);
         //Get the first form element an attach it to host element
-        this.formElement = htmlNode.firstElementChild as Element;
+        this.formElement = htmlNode.firstElementChild as HTMLFormElement;
         this.formElement.id = "user-input";
 
 
@@ -71,13 +176,10 @@ class ProjectInput {
         this.descriptionInput = this.formElement.querySelector("#description") as HTMLInputElement;
 
         this.configureSubmitListener();
-        this.attachToContent(this.formElement);
+        this.attachToContent(this.formElement, "afterbegin");
     }
 
-    //Attach content to host element
-    private attachToContent(element: Element) {
-        this.htmlHostElement.insertAdjacentElement("afterbegin", element);
-    }
+
 
     @AautoBind
     private submitHandler(event: Event) {
@@ -88,6 +190,7 @@ class ProjectInput {
         if (Array.isArray(userInput)) {
             //Create three variables
             const [title, desc, people] = userInput;
+            projectState.addProject(title,desc,people)
             this.clearForm();
         }
     }
@@ -124,4 +227,6 @@ class ProjectInput {
     }
 }
 
-const projectInputInstance = new ProjectInput();
+const projectInputInstance = new ProjectInputForm();
+const projectList = new ProjectList('active');
+const projectList2 = new ProjectList('finished');
