@@ -1,232 +1,381 @@
-class ProjectState {
+// Project Type
+enum ProjectStatus {
+    Active,
+    Finished
+}
 
-    private listeners : any[] = [];
+//Drag and drop
+interface Draggable {
+    dragStartHandler(event : DragEvent) : void;
+    dragEndHandler(event : DragEvent ) : void;
+}
 
-    private projects : any[] = [];
-    private static instance : ProjectState;
+interface DragTarget {
+    dragOverHandler(event : DragEvent) : void;
+    dropHandler(event : DragEvent) : void;
+    dragLeaveHandler(event : DragEvent) :void;
 
-    private constructor() {
+}
 
-    }
+class Project {
+    constructor(
+        public id: string,
+        public title: string,
+        public description: string,
+        public people: number,
+        public status: ProjectStatus
+    ) {}
 
-    public addListener(listenerFunction : Function) {
-        this.listeners.push(listenerFunction)
+}
 
-    }
+// Project State Management
+type Listener<T> = (items: T[]) => void;
 
-    static getSingleton() {
-        if (this.instance){
-            return this.instance;
-        } else {
-            this.instance = new ProjectState()
-            return this.instance;
-        }
-    }
+class State<T> {
+    protected listeners: Listener<T>[] = [];
 
-    addProject(title: string, descr : string, nrPeople:  number){
-        const newProject = {
-            id : Math.random().toString(),
-            title:title,
-            description:descr,
-            people: nrPeople
-        };
-        this.projects.push(newProject);
-
-        for (const listener of this.listeners){
-            listener(this.projects.slice());
-        }
-
-        this.projects.push(newProject);
+    addListener(listenerFn: Listener<T>) {
+        this.listeners.push(listenerFn);
     }
 }
 
-const projectState = ProjectState.getSingleton();
+class ProjectState extends State<Project> {
+    private projects: Project[] = [];
+    private static instance: ProjectState;
 
+    private constructor() {
+        super();
+    }
 
+    static getInstance() {
+        if (this.instance) {
+            return this.instance;
+        }
+        this.instance = new ProjectState();
+        return this.instance;
+    }
 
+    addProject(title: string, description: string, numOfPeople: number) {
+        const newProject = new Project(
+            Math.random().toString(),
+            title,
+            description,
+            numOfPeople,
+            ProjectStatus.Active
+        );
+        this.projects.push(newProject);
+        this.UpdateListeners();
+    }
 
+    MoveProject(projectId : string, newStatus : ProjectStatus){
+        const prj = this.projects.find(prj => prj.id === projectId);
+        if (prj && prj.status !== newStatus){
+            prj.status = newStatus;
+            this.UpdateListeners();
+        }
+    }
+
+    private UpdateListeners(){
+        for (const listenerFn of this.listeners) {
+            listenerFn(this.projects.slice());
+        }
+    }
+}
+
+const projectState = ProjectState.getInstance();
+
+// Validation
 interface Validatable {
-    minLength?: number;
-    value: string |number;
+    value: string | number;
     required?: boolean;
+    minLength?: number;
     maxLength?: number;
     min?: number;
     max?: number;
 }
 
-function validate(input : Validatable) {
+function validate(validatableInput: Validatable) {
     let isValid = true;
-
-    if (input.required){
-        isValid = isValid && input.value.toString().trim().length !== 0;
+    if (validatableInput.required) {
+        isValid = isValid && validatableInput.value.toString().trim().length !== 0;
     }
-    if (input.minLength != null && typeof input.value === "string"){
-        isValid = isValid && input.value.length > input.minLength;
+    if (
+        validatableInput.minLength != null &&
+        typeof validatableInput.value === 'string'
+    ) {
+        isValid =
+            isValid && validatableInput.value.length >= validatableInput.minLength;
     }
-    if (input.maxLength != null && typeof input.value === "string"){
-        isValid = isValid && input.value.length <= input.maxLength;
+    if (
+        validatableInput.maxLength != null &&
+        typeof validatableInput.value === 'string'
+    ) {
+        isValid =
+            isValid && validatableInput.value.length <= validatableInput.maxLength;
     }
-    if (input.min != null  && typeof input.value === "number"){
-        isValid = isValid && input.value > input.min;
+    if (
+        validatableInput.min != null &&
+        typeof validatableInput.value === 'number'
+    ) {
+        isValid = isValid && validatableInput.value >= validatableInput.min;
     }
-    if (input.max != null  && typeof input.value === "number"){
-        isValid = isValid && input.value <= input.max;
+    if (
+        validatableInput.max != null &&
+        typeof validatableInput.value === 'number'
+    ) {
+        isValid = isValid && validatableInput.value <= validatableInput.max;
     }
     return isValid;
-
 }
 
-
-function AautoBind(target: any,
-                   methodname: string,
-                   descriptor: PropertyDescriptor
-) {
-
+// autobind decorator
+function autobind(_: any, _2: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor.value;
-    const adjustedDescriptor: PropertyDescriptor = {
+    const adjDescriptor: PropertyDescriptor = {
         configurable: true,
         get() {
-            return originalMethod.bind(this);
+            const boundFn = originalMethod.bind(this);
+            return boundFn;
         }
     };
-    return adjustedDescriptor;
-}
-abstract class HTMLProjectElement {
-    protected htmlHostElement: HTMLDivElement;
-
-    protected constructor() {
-        this.htmlHostElement = document.getElementById("app") as HTMLDivElement;
-    }
-
-
-    protected attachToContent(element: Element, position: 'beforeend' | 'afterbegin') {
-        this.htmlHostElement.insertAdjacentElement(position, element);
-    }
+    return adjDescriptor;
 }
 
+// Component Base Class
+abstract class Component<T extends HTMLElement, U extends HTMLElement> {
+    templateElement: HTMLTemplateElement;
+    hostElement: T;
+    element: U;
 
- // Project list
-class ProjectList extends HTMLProjectElement{
-    private htmlTemplate: HTMLTemplateElement;
-    private sectionElement: HTMLElement;
-    private assignedProject : any[];
+    constructor(
+        templateId: string,
+        hostElementId: string,
+        insertAtStart: boolean,
+        newElementId?: string
+    ) {
+        this.templateElement = document.getElementById(
+            templateId
+        )! as HTMLTemplateElement;
+        this.hostElement = document.getElementById(hostElementId)! as T;
 
-    constructor(public projectType: 'active' | 'inactive' | 'finished') {
-        super()
-        this.htmlTemplate = document.getElementById("project-list") as HTMLTemplateElement;
-        this.assignedProject = [];
+        const importedNode = document.importNode(
+            this.templateElement.content,
+            true
+        );
+        this.element = importedNode.firstElementChild as U;
+        if (newElementId) {
+            this.element.id = newElementId;
+        }
 
-        //Get the fields and button of the form as deep copy
-        const htmlNode = document.importNode(this.htmlTemplate.content, true);
-        //Get the first form element an attach it to host element
-        this.sectionElement = htmlNode.firstElementChild as HTMLElement;
-        this.sectionElement.id = `${this.projectType}-projects`;
+        this.attach(insertAtStart);
+    }
 
-        projectState.addListener( (projects : any[] ) => {
-            this.assignedProject = projects;
+    private attach(insertAtBeginning: boolean) {
+        this.hostElement.insertAdjacentElement(
+            insertAtBeginning ? 'afterbegin' : 'beforeend',
+            this.element
+        );
+    }
+
+    abstract configure(): void;
+    abstract renderContent(): void;
+}
+
+// ProjectItem Class
+class ProjectItem extends Component<HTMLUListElement, HTMLLIElement>
+    implements Draggable
+{
+    private project: Project;
+
+    get persons (){
+        if (this.project.people === 1){
+            return "1 person"
+        }
+        return `${this.project.people} persons`
+    }
+
+    constructor(hostId: string, project: Project) {
+        super('single-project', hostId, false, project.id);
+        this.project = project;
+
+        this.configure();
+        this.renderContent();
+    }
+
+    configure() {
+        this.element.addEventListener("dragstart", this.dragStartHandler)
+        this.element.addEventListener("dragstart", this.dragEndHandler)
+    }
+
+    renderContent() {
+        this.element.querySelector('h2')!.textContent = this.project.title;
+        this.element.querySelector(
+            'h3'
+        )!.textContent = this.persons + " assigned";
+        this.element.querySelector('p')!.textContent = this.project.description;
+    }
+
+    @autobind
+    dragStartHandler(event: DragEvent) {
+        event.dataTransfer!.setData('text/plain', this.project.id);
+        event.dataTransfer!.effectAllowed = 'move';
+    }
+
+    @autobind
+    dragEndHandler(event: DragEvent) {
+        console.log("drag end")
+    }
+}
+
+// ProjectList Class
+class ProjectList extends Component<HTMLDivElement, HTMLElement>
+implements DragTarget {
+    assignedProjects: Project[];
+
+    constructor(private type: 'active' | 'finished') {
+        super('project-list', 'app', false, `${type}-projects`);
+        this.assignedProjects = [];
+
+        this.configure();
+        this.renderContent();
+    }
+
+    configure() {
+        projectState.addListener((projects: Project[]) => {
+            const relevantProjects = projects.filter(prj => {
+                if (this.type === 'active') {
+                    return prj.status === ProjectStatus.Active;
+                }
+                return prj.status === ProjectStatus.Finished;
+            });
+            this.assignedProjects = relevantProjects;
             this.renderProjects();
         });
 
-        this.attachToContent(this.sectionElement, "beforeend")
-        this.renderContent();
-
+        this.element.addEventListener("dragover", this.dragOverHandler);
+        this.element.addEventListener("dragleave", this.dragLeaveHandler);
+        this.element.addEventListener("drop", this.dropHandler);
     }
 
-
-    private renderContent(){
-        const listId =`${this.projectType}-project-list`;
-        this.sectionElement.querySelector("ul")!.id = listId;
-        this.sectionElement.querySelector("h2")!.textContent
-            = this.projectType.toUpperCase() + 'PROJECT';
+    renderContent() {
+        const listId = `${this.type}-projects-list`;
+        this.element.querySelector('ul')!.id = listId;
+        this.element.querySelector('h2')!.textContent =
+            this.type.toUpperCase() + ' PROJECTS';
     }
 
     private renderProjects() {
-        const listEl = document.getElementById(`${this.projectType}-project-list`)! as HTMLUListElement;
-        for (const projectItem of this.assignedProject){
-            const listItem = document.createElement("li");
-            listItem.textContent = projectItem.title;
-            listEl.appendChild(listItem);
+        const listEl = document.getElementById(
+            `${this.type}-projects-list`
+        )! as HTMLUListElement;
+        listEl.innerHTML = '';
+        for (const prjItem of this.assignedProjects) {
+            new ProjectItem(this.element.querySelector('ul')!.id, prjItem);
         }
+    }
+
+    @autobind
+    dragLeaveHandler(event: DragEvent) {
+        const listEl = this.element.querySelector("ul")!;
+        listEl.classList.remove('droppable')
+    }
+
+    @autobind
+    dropHandler(event: DragEvent) {
+        const projectID = event.dataTransfer!.getData('text/plain');
+        projectState.MoveProject(projectID,
+            this.type === "active" ? ProjectStatus.Active : ProjectStatus.Finished);
+    }
+
+    @autobind
+    dragOverHandler(event: DragEvent) {
+        if (event.dataTransfer && event.dataTransfer.types[0] === 'text/plain'){
+            event.preventDefault();
+            const listEl = this.element.querySelector("ul")!;
+            listEl.classList.add('droppable')
+        }
+
+
     }
 }
 
-class ProjectInputForm extends HTMLProjectElement{
-
-    private htmlTemplate: HTMLTemplateElement;
-    private formElement: HTMLFormElement;
-    private titleInput: HTMLInputElement;
-    private peopleInput: HTMLInputElement;
-    private descriptionInput: HTMLInputElement;
+// ProjectInput Class
+class ProjectInput extends Component<HTMLDivElement, HTMLFormElement> {
+    titleInputElement: HTMLInputElement;
+    descriptionInputElement: HTMLInputElement;
+    peopleInputElement: HTMLInputElement;
 
     constructor() {
-        super();
-        this.htmlTemplate = document.getElementById("project-input") as HTMLTemplateElement;
-        this.htmlTemplate = document.getElementById("project-input") as HTMLTemplateElement;
-        this.htmlHostElement = document.getElementById("app") as HTMLDivElement;
-
-        //Get the fields and button of the form as deep copy
-        const htmlNode = document.importNode(this.htmlTemplate.content, true);
-        //Get the first form element an attach it to host element
-        this.formElement = htmlNode.firstElementChild as HTMLFormElement;
-        this.formElement.id = "user-input";
-
-
-        this.titleInput = this.formElement.querySelector("#title") as HTMLInputElement;
-        this.peopleInput = this.formElement.querySelector("#people") as HTMLInputElement;
-        this.descriptionInput = this.formElement.querySelector("#description") as HTMLInputElement;
-
-        this.configureSubmitListener();
-        this.attachToContent(this.formElement, "afterbegin");
+        super('project-input', 'app', true, 'user-input');
+        this.titleInputElement = this.element.querySelector(
+            '#title'
+        ) as HTMLInputElement;
+        this.descriptionInputElement = this.element.querySelector(
+            '#description'
+        ) as HTMLInputElement;
+        this.peopleInputElement = this.element.querySelector(
+            '#people'
+        ) as HTMLInputElement;
+        this.configure();
     }
 
-
-
-    @AautoBind
-    private submitHandler(event: Event) {
-        event.preventDefault();
-        const userInput = this.getUserInput();
-
-        //Typescript compiles tuples to Array
-        if (Array.isArray(userInput)) {
-            //Create three variables
-            const [title, desc, people] = userInput;
-            projectState.addProject(title,desc,people)
-            this.clearForm();
-        }
+    configure() {
+        this.element.addEventListener('submit', this.submitHandler);
     }
 
-    private clearForm() {
-        this.titleInput.value = '';
-        this.descriptionInput.value = '';
-        this.peopleInput.value = '';
-    }
+    renderContent() {}
 
+    private gatherUserInput(): [string, string, number] | void {
+        const enteredTitle = this.titleInputElement.value;
+        const enteredDescription = this.descriptionInputElement.value;
+        const enteredPeople = this.peopleInputElement.value;
 
-    private configureSubmitListener() {
-        //Configure the submit handler such that 'this' will refer to the class, and not the
-        this.formElement.addEventListener('submit', this.submitHandler)
-    }
+        const titleValidatable: Validatable = {
+            value: enteredTitle,
+            required: true
+        };
+        const descriptionValidatable: Validatable = {
+            value: enteredDescription,
+            required: true,
+            minLength: 1
+        };
+        const peopleValidatable: Validatable = {
+            value: +enteredPeople,
+            required: true,
+            min: 1,
+            max: 100
+        };
 
-    private getUserInput(): [string, string, number] | void {
-        const enteredTitle = this.titleInput.value;
-        const desc = this.descriptionInput.value;
-        const nrPeople = this.peopleInput.value;
-
-
-        if (!validate({value: enteredTitle, required: true}) ||
-            !validate({value: desc, required: true, minLength: 5}) ||
-            !validate({value: +nrPeople, required: true, min: 1, max: 5})
+        if (
+            !validate(titleValidatable) ||
+            !validate(descriptionValidatable) ||
+            !validate(peopleValidatable)
         ) {
-            alert("Invalid input")
+            alert('Invalid input, please try again!');
             return;
         } else {
-            //+ as float
-            return [enteredTitle, desc, +nrPeople];
+            return [enteredTitle, enteredDescription, +enteredPeople];
         }
+    }
 
+    private clearInputs() {
+        this.titleInputElement.value = '';
+        this.descriptionInputElement.value = '';
+        this.peopleInputElement.value = '';
+    }
+
+    @autobind
+    private submitHandler(event: Event) {
+        event.preventDefault();
+        const userInput = this.gatherUserInput();
+        if (Array.isArray(userInput)) {
+            const [title, desc, people] = userInput;
+            projectState.addProject(title, desc, people);
+            this.clearInputs();
+        }
     }
 }
 
-const projectInputInstance = new ProjectInputForm();
-const projectList = new ProjectList('active');
-const projectList2 = new ProjectList('finished');
+const prjInput = new ProjectInput();
+const activePrjList = new ProjectList('active');
+const finishedPrjList = new ProjectList('finished');
